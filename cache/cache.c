@@ -20,7 +20,7 @@ int countDown = 0;
 int E = -1; // associativity
 int s = -1; // # of set bits, and S = 2^s gives number of sets
 int b = -1; // # of block bits, and B = 2^b gives number of block bytes
-int i = -1; // # of lines in victim cache
+int v = -1; // # of lines in victim cache
 int k = -1; // # of bits in the RRPV, max value of RRPV is 2^k - 1
 
 void memoryRequest(trace_op* op, int processorNum, int64_t tag,
@@ -43,32 +43,23 @@ csim* init(cache_sim_args* csa)
     {
         switch (op)
         {
-            // Lines per set
             case 'E':
                 E = atoi(optarg);
                 break;
-
-            // Sets per cache
             case 's':
                 s = atoi(optarg);
                 break;
-
-            // block size in bits
             case 'b':
                 b = atoi(optarg);
                 break;
-
-            // entries in victim cache
             case 'i':
-                i = atoi(optarg);
+                v = atoi(optarg);
                 break;
-
-            // bits in a RRIP-based replacement policy
             case 'R':
                 k = atoi(optarg);
                 break;
         }
-    } printf("Input parameters: E = %d, s = %d, b = %d, i = %d, k = %d\n", E, s, b, i, k);
+    } printf("Input parameters: E = %d, s = %d, b = %d, v = %d, k = %d\n", E, s, b, v, k);
 
     // initialize the cache here
     self = malloc(sizeof(csim));
@@ -89,7 +80,7 @@ csim* init(cache_sim_args* csa)
             cache[i][j].tag = 0;      // disregarded if vbit == 0
         }
     } self->cache = cache;
-    printf("Initialized cache of %d x %d x %d\n", S, E, B);
+    printf("Initialized cache of %d x %d x %d\n\n", S, E, B);
     return self;
 }
 
