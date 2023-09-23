@@ -13,10 +13,9 @@ typedef struct _pendingRequest {
     void (*memCallback)(int, int64_t);
 } pendingRequest;
 
-csim *self = NULL; // csim is the cache object, see csim.h for definition
-line *vcache = NULL; // victim cache will be a 1D array of line structs
+csim* self = NULL; // csim is the cache object, see csim.h for definition
 int processorCount = 1;
-bool verbose = false; // set this to true if you want print logs
+bool verbose = true; // set this to true if you want print logs
 pendingRequest pending = {0};
 int countDown = 0;
 int E = -1; // associativity
@@ -79,14 +78,16 @@ csim* init(cache_sim_args* csa)
     int B = pow2(b);
     line **cache = calloc(sizeof(line*), S);
     cache = calloc(sizeof(line*), S);
-    for (int i = 0; i < S; i++) cache[i] = calloc(sizeof(line), E);
-    self->cache = cache;
-    printv("Initialized cache of %d x %d x %d\n", S, E, B);
-    if (v > 0) { // initialize the victim cache if applicable
-        vcache = calloc(sizeof(line), v); 
-        printv("Initialized victim cache of size 1 x %d x %d\n", v, B);
-    } printv("\n");
-
+    for (int i = 0; i < S; i++) {
+        cache[i] = calloc(sizeof(line), E);
+        for (int j = 0; j < E; j++) {
+            cache[i][j].vbit = 0;
+            cache[i][j].dbit = 0;     // disregarded if vbit == 0
+            cache[i][j].evict = 0;    // disregarded if vbit == 0
+            cache[i][j].tag = 0;      // disregarded if vbit == 0
+        }
+    } self->cache = cache;
+    printv("Initialized cache of %d x %d x %d\n\n", S, E, B);
     return self;
 }
 
@@ -95,67 +96,33 @@ void handleHit(int set, int index, bool store) {
     l->evict = 0; // set to 0 in both LRU and RRPV case
     if (store && l->dbit == 0) l->dbit = 1;
     printv("Got cache hit in set %d at index %d\n", set, index);
+    countDown = 1;
+    // TODO: do additional check for hit in victim cache
 }
 
-void handleColdMiss(unsigned long tag, int set, int index, bool store, line *vcacheHit) {
+void handleColdMiss(unsigned long tag, int set, int index, bool store) {
     line *l = &self->cache[set][index];
+    if (k != -1) l->evict = pow2(k) - 1; // RRPV case  
+    else l->evict = 0; // LRU case
     l->tag = tag;
     l->vbit = 1;
-    if (vcacheHit) {
-        l->evict = 0;
-        l->dbit = vcacheHit->dbit;
-        free(vcacheHit);
-        printv("Got victim cache hit, loading into main cache set %d at index %d\n", set, index);
-    } else {
-        if (k != -1) l->evict = pow2(k) - 1; // RRPV case  
-        else l->evict = 0; // LRU case
-        countDown = 100;
-        printv("Got cold cache miss, loaded into set %d at index %d\n", set, index);
-    } if (store) l->dbit = 1;
+    if (store) l->dbit = 1;
+    printv("Got cold cache miss, loaded into set %d at index %d\n", set, index);
+    countDown = 100;
 }
 
-void handleConflictMiss(unsigned long tag, int set, int index, bool store, line *vcacheHit) {
+void handleConflictMiss(unsigned long tag, int set, int index, bool store) {
     line *l = &self->cache[set][index];
-
-    // if victim cache exists, add to it first
-    if (vcache) {
-        int vEmptyIndex = -1; 
-        int vEvictVal = -1; 
-        int vEvictIndex = -1;
-        line *vl;
-        for (int i = 0; i < v; i++) {
-            vl = &vcache[i];
-            if (vl->vbit == 0 && vEmptyIndex == -1) vEmptyIndex = i;
-            else if (vl->vbit == 1 && ++vl->evict > vEvictVal) {
-                vEvictVal = vl->evict;
-                vEvictIndex = i;
-            }
-        } if (vEmptyIndex != -1) vl = &vcache[vEmptyIndex];
-        else {
-            vl = &vcache[vEvictIndex];
-            countDown = vl->dbit == 1 ? 150 : 100;
-            printv("Evicting from victim cache...\n");
-        } vl->vbit = 1;
-        vl->dbit = l->dbit;
-        vl->evict = 0;
-        vl->tag = l->tag;
-    }
-        
+    if (k != -1) l->evict = pow2(k) - 1; // RRPV case  
+    else l->evict = 0; // LRU case
     l->tag = tag;
-    if (vcacheHit) {
-        l->evict = 0;
-        l->dbit = vcacheHit->dbit;
-        free(vcacheHit);
-        printv("Got victim cache hit, loading into main cache set %d at index %d\n", set, index);
-    } else {
-        if (k != -1) l->evict = pow2(k) - 1; // RRPV case  
-        else l->evict = 0; // LRU case
-        if (l->dbit == 1) {
-            l->dbit = 0;
-            if (!vcache) countDown = 150;
-        } else if (!vcache) countDown = 100;
-        printv("Got conflict cache miss, evicted entry in set %d at index %d\n", set, index);
-    } if (store) l->dbit = 1;
+    if (l->dbit == 1) {
+        l->dbit = 0;
+        countDown = 150;
+    } else countDown = 100;
+    if (store) l->dbit = 1;
+    printv("Got conflict cache miss, evicted entry in set %d at index %d\n", set, index);
+    // TODO: move evicted entry to victim cache
 }
 
 void memoryRequest(trace_op* op, int processorNum, int64_t tag,
@@ -186,8 +153,6 @@ void memoryRequest(trace_op* op, int processorNum, int64_t tag,
     int matchIndex = -1; // denotes cache hit if not -1
     int evictVal = -1; // if neither cache hit or cold miss, then must be conflict miss
     int evictIndex = -1; // use LRUIndex in case of conflict miss
-
-    // first pass through the main cache: checks to see if hit, cold miss, or conflict miss
     for (int j = 0; j < E; j++) {
         line *l = &self->cache[set][j];
         if (l->vbit == 0 && emptyIndex == -1) emptyIndex = j;
@@ -198,42 +163,16 @@ void memoryRequest(trace_op* op, int processorNum, int64_t tag,
                 evictIndex = j;
             }
         }
-    } 
-    
-    // if first pass didn't result in a hit and victim cache is enabled: check victim cache
-    // if victim cache finds a hit: remove the entry from the victim cache but copy its contents.
-    // then have the victim cache entry be added via handleColdMiss or handleConflictMiss
-    line *vcacheHit = NULL;
-    if (vcache && matchIndex == -1) {
-        int vMatchIndex = -1;
-        for (int i = 0; i < v; i++) {
-            line *l = &vcache[i];
-            if (l->vbit == 1 && l->tag == cacheTag && vMatchIndex == -1) vMatchIndex = i;
-        } if (vMatchIndex != -1) {
-            line *l = &vcache[vMatchIndex];
-            vcacheHit = malloc(sizeof(line)); // create a copy of the vcache entry
-            vcacheHit->vbit = 1;
-            vcacheHit->dbit = l->dbit;
-            vcacheHit->tag = l->tag;
-            l->vbit = 0; // clear entry
-            l->dbit = 0;
-            l->evict = 0;
-            l->tag = 0;
-        }
-    }
-    
-    for (int j = 0; j < E; j++) {
+    } for (int j = 0; j < E; j++) {
         line *l = &self->cache[set][j];
-        if (k == -1) ++l->evict; // LRU case: increment all LRU counters by 1
-        else if (matchIndex == -1 && emptyIndex == -1) 
-            l->evict += pow2(k) - 1 - evictVal; // RRPV case: increment all RRPVs until at least one reaches 2^k - 1
+        if (k != -1) l->evict += pow2(k) - 1 - evictVal; // RRPV case: increment all RRPVs until at least one reaches 2^k - 1
+        else ++l->evict; // LRU case: increment all LRU counts by 1
     }
     
     printv("match index: %d, empty index: %d, LRU/RRPV value: %d, evict index: %d\n", matchIndex, emptyIndex, evictVal, evictIndex);
     if (matchIndex != -1) handleHit(set, matchIndex, store);
-    else if (emptyIndex != -1) handleColdMiss(cacheTag, set, emptyIndex, store, vcacheHit);
-    else handleConflictMiss(cacheTag, set, evictIndex, store, vcacheHit);
-    if (countDown == 0) countDown = 1;
+    else if (emptyIndex != -1) handleColdMiss(cacheTag, set, emptyIndex, store);
+    else handleConflictMiss(cacheTag, set, evictIndex, store);
     printv("Setting countdown to %d\n\n", countDown);
 }
 
