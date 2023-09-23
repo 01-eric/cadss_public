@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <getopt.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <assert.h>
 
 typedef struct _pendingRequest {
@@ -14,7 +15,7 @@ typedef struct _pendingRequest {
 
 csim* self = NULL; // csim is the cache object, see csim.h for definition
 int processorCount = 1;
-int CADSS_VERBOSE = 0;
+bool verbose = true; // set this to true if you want print logs
 pendingRequest pending = {0};
 int countDown = 0;
 int E = -1; // associativity
@@ -22,6 +23,12 @@ int s = -1; // # of set bits, and S = 2^s gives number of sets
 int b = -1; // # of block bits, and B = 2^b gives number of block bytes
 int v = -1; // # of lines in victim cache
 int k = -1; // # of bits in the RRPV, max value of RRPV is 2^k - 1
+
+void printv(const char *format, ...) { // wrapper for printf, only prints when verbose is set to true
+    va_list args;
+    va_start(args, format);
+    if (verbose) vprintf(format, args);
+}
 
 void memoryRequest(trace_op* op, int processorNum, int64_t tag,
                    void (*callback)(int, int64_t));
@@ -59,7 +66,7 @@ csim* init(cache_sim_args* csa)
                 k = atoi(optarg);
                 break;
         }
-    } printf("Input parameters: E = %d, s = %d, b = %d, v = %d, k = %d\n", E, s, b, v, k);
+    } printv("Input parameters: E = %d, s = %d, b = %d, v = %d, k = %d\n", E, s, b, v, k);
 
     // initialize the cache here
     self = malloc(sizeof(csim));
@@ -76,50 +83,52 @@ csim* init(cache_sim_args* csa)
         for (int j = 0; j < E; j++) {
             cache[i][j].vbit = 0;
             cache[i][j].dbit = 0;     // disregarded if vbit == 0
-            cache[i][j].lastused = 0; // disregarded if vbit == 0
+            cache[i][j].evict = 0;    // disregarded if vbit == 0
             cache[i][j].tag = 0;      // disregarded if vbit == 0
         }
     } self->cache = cache;
-    printf("Initialized cache of %d x %d x %d\n\n", S, E, B);
+    printv("Initialized cache of %d x %d x %d\n\n", S, E, B);
     return self;
 }
 
 void handleHit(int set, int index, bool store) {
     line *l = &self->cache[set][index]; 
-    l->lastused = 0;
+    l->evict = 0; // set to 0 in both LRU and RRPV case
     if (store && l->dbit == 0) l->dbit = 1;
-    printf("Got cache hit in set %d at index %d\n", set, index);
+    printv("Got cache hit in set %d at index %d\n", set, index);
     countDown = 1;
     // TODO: do additional check for hit in victim cache
 }
 
 void handleColdMiss(unsigned long tag, int set, int index, bool store) {
     line *l = &self->cache[set][index];
-    l->lastused = 0;
+    if (k != -1) l->evict = pow2(k) - 1; // RRPV case  
+    else l->evict = 0; // LRU case
     l->tag = tag;
     l->vbit = 1;
     if (store) l->dbit = 1;
-    printf("Got cold cache miss, loaded into set %d at index %d\n", set, index);
+    printv("Got cold cache miss, loaded into set %d at index %d\n", set, index);
     countDown = 100;
 }
 
 void handleConflictMiss(unsigned long tag, int set, int index, bool store) {
     line *l = &self->cache[set][index];
-    l->lastused = 0;
+    if (k != -1) l->evict = pow2(k) - 1; // RRPV case  
+    else l->evict = 0; // LRU case
     l->tag = tag;
     if (l->dbit == 1) {
         l->dbit = 0;
         countDown = 150;
     } else countDown = 100;
     if (store) l->dbit = 1;
-    printf("Got conflict cache miss, evicted entry in set %d at index %d\n", set, index);
+    printv("Got conflict cache miss, evicted entry in set %d at index %d\n", set, index);
     // TODO: move evicted entry to victim cache
 }
 
 void memoryRequest(trace_op* op, int processorNum, int64_t tag,
                    void (*callback)(int, int64_t))
 {
-    printf("Received %s instruction for address 0x%lx\n", op->op == 1 ? "load" : "store", op->memAddress);
+    printv("Received %s instruction for address 0x%lx\n", op->op == 1 ? "load" : "store", op->memAddress);
     assert(op != NULL);
     assert(callback != NULL);
 
@@ -139,26 +148,32 @@ void memoryRequest(trace_op* op, int processorNum, int64_t tag,
     addr >>= b;
     unsigned long cacheTag = addr >> s;
     unsigned long set = s == 0 ? 0 : addr << (64 - s) >> (64 - s);
-    printf("Operation type: %s, tag: 0x%lx, set: %lu, ", store ? "store" : "load", cacheTag, set);
+    printv("Operation type: %s, tag: 0x%lx, set: %lu, ", store ? "store" : "load", cacheTag, set);
     int emptyIndex = -1; // denotes cold miss if not -1
     int matchIndex = -1; // denotes cache hit if not -1
-    int LRU = 0; // if neither cache hit or cold miss, then must be conflict miss
-    int LRUIndex = -1; // use LRUIndex in case of conflict miss
+    int evictVal = -1; // if neither cache hit or cold miss, then must be conflict miss
+    int evictIndex = -1; // use LRUIndex in case of conflict miss
     for (int j = 0; j < E; j++) {
         line *l = &self->cache[set][j];
         if (l->vbit == 0 && emptyIndex == -1) emptyIndex = j;
         else if (l->vbit == 1) {
             if (l->tag == cacheTag && matchIndex == -1) matchIndex = j;
-            if (++l->lastused > LRU) {
-                LRU = l->lastused;
-                LRUIndex = j;
+            if (l->evict > evictVal) {
+                evictVal = l->evict;
+                evictIndex = j;
             }
         }
-    } printf("match index: %d, empty index: %d, LRU value: %d, LRU index: %d\n", matchIndex, emptyIndex, LRU, LRUIndex);
+    } for (int j = 0; j < E; j++) {
+        line *l = &self->cache[set][j];
+        if (k != -1) l->evict += pow2(k) - 1 - evictVal; // RRPV case: increment all RRPVs until at least one reaches 2^k - 1
+        else ++l->evict; // LRU case: increment all LRU counts by 1
+    }
+    
+    printv("match index: %d, empty index: %d, LRU/RRPV value: %d, evict index: %d\n", matchIndex, emptyIndex, evictVal, evictIndex);
     if (matchIndex != -1) handleHit(set, matchIndex, store);
     else if (emptyIndex != -1) handleColdMiss(cacheTag, set, emptyIndex, store);
-    else handleConflictMiss(cacheTag, set, LRUIndex, store);
-    printf("Setting countdown to %d\n\n", countDown);
+    else handleConflictMiss(cacheTag, set, evictIndex, store);
+    printv("Setting countdown to %d\n\n", countDown);
 }
 
 int tick()

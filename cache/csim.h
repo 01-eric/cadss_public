@@ -14,7 +14,7 @@ typedef struct _cache_sim_args {
 typedef struct {
     short vbit;
     short dbit;
-    int lastused;
+    int evict; // used as either LRU counter or RRPV, depending on the mode
     unsigned long tag;
 } line;
 
