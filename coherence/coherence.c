@@ -1,6 +1,10 @@
 #include <coherence.h>
 #include <trace.h>
 #include <getopt.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include "coher_internal.h"
 
 #include "stree.h"
@@ -9,7 +13,7 @@ typedef void (*cacheCallbackFunc)(int, int, int64_t);
 
 tree_t** coherStates = NULL;
 int processorCount = 1;
-int CADSS_VERBOSE = 0;
+bool verbose = true;
 coherence_scheme cs = MI;
 coher* self = NULL;
 interconn* inter_sim = NULL;
@@ -19,6 +23,12 @@ uint8_t busReq(bus_req_type reqType, uint64_t addr, int processorNum);
 uint8_t permReq(uint8_t is_read, uint64_t addr, int processorNum);
 uint8_t invlReq(uint64_t addr, int processorNum);
 void registerCacheInterface(void (*callback)(int, int, int64_t));
+
+void printv(const char *format, ...) { // wrapper for printf, only prints when verbose is set to true
+    va_list args;
+    va_start(args, format);
+    if (verbose) vprintf(format, args);
+}
 
 coher* init(coher_sim_args* csa)
 {
@@ -42,6 +52,7 @@ coher* init(coher_sim_args* csa)
         return NULL;
     }
 
+    // for each processor, maintain a tree map which maps address -> state for fast lookup
     coherStates = malloc(sizeof(tree_t*) * processorCount);
     for (int i = 0; i < processorCount; i++)
     {
@@ -69,7 +80,7 @@ void registerCacheInterface(void (*callback)(int, int, int64_t))
     cacheCallback = callback;
 }
 
-coherence_states getState(uint64_t addr, int processorNum)
+coherence_states getState(uint64_t addr, int processorNum) // given a memory address, looks up what state it's in
 {
     coherence_states lookState
         = (coherence_states)tree_find(coherStates[processorNum], addr);
@@ -79,13 +90,14 @@ coherence_states getState(uint64_t addr, int processorNum)
     return lookState;
 }
 
-void setState(uint64_t addr, int processorNum, coherence_states nextState)
+void setState(uint64_t addr, int processorNum, coherence_states nextState) // given a memory address, set its state
 {
     tree_insert(coherStates[processorNum], addr, (void*)nextState);
 }
 
-uint8_t busReq(bus_req_type reqType, uint64_t addr, int processorNum)
+uint8_t busReq(bus_req_type reqType, uint64_t addr, int processorNum) // basically encapsulates receiving BusRd, BusWr, or another type of bus request
 {
+    printv("In mode %d; bus request with type %d, address %lx, processor %d\n", cs, reqType, addr, processorNum);
     if (processorNum < 0 || processorNum >= processorCount)
     {
         // ERROR
@@ -95,14 +107,16 @@ uint8_t busReq(bus_req_type reqType, uint64_t addr, int processorNum)
     coherence_states nextState;
     cache_action ca;
 
-    switch (cs)
+    switch (cs) // THIS SWITCH STATEMENT IS TRIGGERED WHEN THERE IS A BUS REQUEST
     {
         case MI:
             nextState
-                = snoopMI(reqType, &ca, currentState, addr, processorNum);
+                = snoopMI(reqType, &ca, currentState, addr, processorNum); // only moves M to I on BusWr
             break;
         case MSI:
             // TODO: Implement this.
+            nextState
+                = snoopMSI(reqType, &ca, currentState, addr, processorNum);
             break;
         case MESI:
             // TODO: Implement this.
@@ -147,8 +161,9 @@ uint8_t busReq(bus_req_type reqType, uint64_t addr, int processorNum)
     return 0;
 }
 
-uint8_t permReq(uint8_t is_read, uint64_t addr, int processorNum)
+uint8_t permReq(uint8_t is_read, uint64_t addr, int processorNum) // basically encapsulates PrRd and PrWr
 {
+    printv("In mode %d; perm request with type %d, address %lx, processor %d\n", cs, is_read, addr, processorNum);
     if (processorNum < 0 || processorNum >= processorCount)
     {
         // ERROR
@@ -156,7 +171,7 @@ uint8_t permReq(uint8_t is_read, uint64_t addr, int processorNum)
 
     coherence_states currentState = getState(addr, processorNum);
     coherence_states nextState;
-    uint8_t permAvail = 0;
+    uint8_t permAvail = 0; // return value bool: whether permissions were granted or not
 
     switch (cs)
     {
@@ -166,7 +181,8 @@ uint8_t permReq(uint8_t is_read, uint64_t addr, int processorNum)
             break;
 
         case MSI:
-            // TODO: Implement this.
+            nextState = cacheMSI(is_read, &permAvail, currentState, addr, 
+                                processorNum);
             break;
 
         case MESI:
@@ -190,8 +206,9 @@ uint8_t permReq(uint8_t is_read, uint64_t addr, int processorNum)
     return permAvail;
 }
 
-uint8_t invlReq(uint64_t addr, int processorNum)
+uint8_t invlReq(uint64_t addr, int processorNum) // basically handles cache line invalidation
 {
+    printv("In mode %d; invalidation request with address %lx, processor %d\n", cs, addr, processorNum);
     coherence_states currentState, nextState = INVALID;
     cache_action ca;
     uint8_t flush;
@@ -203,21 +220,24 @@ uint8_t invlReq(uint64_t addr, int processorNum)
 
     currentState = getState(addr, processorNum);
 
-    flush = 0;
+    flush = 0; // returns whether or not data was actually flushed or not
     switch (cs)
     {
         case MI:
             nextState = INVALID;
             if (currentState != INVALID)
             {
-                inter_sim->busReq(DATA, addr, processorNum);
+                inter_sim->busReq(DATA, addr, processorNum); // DATA bus req type denotes that a processor flushed this cache entry
                 flush = 1;
             }
             break;
 
         case MSI:
-            // TODO: Implement this.
-            break;
+            nextState = INVALID;
+            if (currentState != INVALID) {
+                if (currentState == MODIFIED) inter_sim->busReq(DATA, addr, processorNum);
+                flush = 1; // not sure about this logic yet
+            } break;
         case MESI:
             // TODO: Implement this.
             break;

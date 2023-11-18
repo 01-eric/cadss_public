@@ -11,7 +11,9 @@ typedef enum _coherence_states
     UNDEF = 0, // As tree find returns NULL, we need an unused for NULL
     MODIFIED,
     INVALID,
-    INVALID_MODIFIED
+    INVALID_MODIFIED,
+    SHARING,
+    INVALID_SHARING
 } coherence_states;
 
 typedef enum _coherence_scheme
@@ -28,6 +30,12 @@ cacheMI(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
         uint64_t addr, int procNum);
 coherence_states
 snoopMI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
+        uint64_t addr, int procNum);
+coherence_states
+cacheMSI(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
+        uint64_t addr, int procNum);
+coherence_states
+snoopMSI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
         uint64_t addr, int procNum);
 
 #endif

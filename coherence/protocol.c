@@ -26,17 +26,17 @@ cacheMI(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
 {
     switch (currentState)
     {
-        case INVALID:
-            *permAvail = 0;
-            sendBusWr(addr, procNum);
-            return INVALID_MODIFIED;
+        case INVALID: // need to gain exclusive permission (in MI, this occurs on both PrRd and PrWr)
+            *permAvail = 0; // set permission available to false
+            sendBusWr(addr, procNum); // send BusWr to all other processors (since no differentiation between PrRd and PrWr)
+            return INVALID_MODIFIED; // move to intermediate state waiting for permissions
         case MODIFIED:
-            *permAvail = 1;
+            *permAvail = 1; // permissions already available
             return MODIFIED;
-        case INVALID_MODIFIED:
+        case INVALID_MODIFIED: // intermediate state: need to wait for permissions
             fprintf(stderr, "IM state on %lx, but request %d\n", addr,
                     is_read);
-            *permAvail = 0;
+            *permAvail = 0; // do nothing; snoopMI will snoop for other processors granting permission and move us to M state
             return INVALID_MODIFIED;
         default:
             fprintf(stderr, "State %d not supported, found on %lx\n",
@@ -56,13 +56,13 @@ snoopMI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
     {
         case INVALID:
             return INVALID;
-        case MODIFIED:
-            sendData(addr, procNum);
+        case MODIFIED: // note that this triggers on all req types, because M is always exclusive on both Rd and Wr
+            sendData(addr, procNum); // send DATA bus request to other processors (indicating line was flushed)
             // indicateShared(addr, procNum); // Needed for E state
             *ca = INVALIDATE;
             return INVALID;
         case INVALID_MODIFIED:
-            if (reqType == DATA || reqType == SHARED)
+            if (reqType == DATA || reqType == SHARED) // only need to wait for one response, since only one processor in M at a time
             {
                 *ca = DATA_RECV;
                 return MODIFIED;
@@ -76,4 +76,76 @@ snoopMI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
     }
 
     return INVALID;
+}
+
+coherence_states
+cacheMSI(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
+        uint64_t addr, int procNum)
+{
+    switch(currentState) {
+        case INVALID:
+            *permAvail = 0; // indicate permissions not available yet, need to go to intermediate state first
+            if (is_read) {
+                sendBusRd(addr, procNum);
+                return INVALID_SHARING;
+            } else {
+                sendBusWr(addr, procNum);
+                return INVALID_MODIFIED;
+            }
+        case MODIFIED:
+            *permAvail = 1; // permissions already available
+            return MODIFIED;
+        case INVALID_MODIFIED:
+            *permAvail = 0; // do nothing; snoopMI will move this state to modified eventually when DATA is received
+            return INVALID_MODIFIED;
+        case SHARING:
+            if (is_read) {
+                *permAvail = 1; // if we are reading, the permissions already available
+                return SHARING;
+            } else {
+                *permAvail = 0;
+                sendBusWr(addr, procNum); // same actions as moving from I -> M
+                return INVALID_MODIFIED;
+            }
+        case INVALID_SHARING:
+            *permAvail = 0; // do nothing; snoopMI will handle this case as well
+            return INVALID_SHARING;
+        default:
+            break;
+    } return INVALID;
+}
+
+coherence_states
+snoopMSI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
+        uint64_t addr, int procNum)
+{
+    *ca = NO_ACTION;
+    switch (currentState) {
+        case INVALID:
+            return INVALID;
+        case MODIFIED:
+            sendData(addr, procNum); // broadcast DATA busreq to let processors know data was evicted
+            if (reqType == BUSRD) return SHARING; // move M -> S if BusRd, else move M -> I
+            else { // BUSWR
+                *ca = INVALIDATE;
+                return INVALID;
+            }
+        case INVALID_MODIFIED:
+            if (reqType == DATA || reqType == SHARED) { // check if we need to send SHARED when moving S -> I in invlReq later
+                *ca = DATA_RECV;
+                return MODIFIED;
+            } return INVALID_MODIFIED;
+        case SHARING:
+            if (reqType == BUSWR) {
+                *ca = INVALIDATE; // double check this is the way to use invalidate as well
+                return INVALID;
+            } return SHARING;
+        case INVALID_SHARING:
+            if (reqType == DATA || reqType == SHARED) { // same logic as INVALID_MODIFIED
+                *ca = DATA_RECV;
+                return MODIFIED;
+            } return INVALID_SHARING;
+        default:
+            break;
+    } return INVALID;
 }
