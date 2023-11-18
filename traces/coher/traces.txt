@@ -1,0 +1,16 @@
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/4proc_migratory/p0.trace
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/4proc_prodcons/p0.trace
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/blackscholes_4_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/dedup_4_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/dedup_8_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/fluidanimate_4_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/splash2x.lu_cb_4_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/splash2x.lu_cb_8_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/splash2x.lu_ncb_4_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/splash2x.lu_ncb_8_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/splash2x.volrend_4_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/splash2x.volrend_8_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/swaptions_4_simsmall.taskgraph
+/afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/x264_8_simsmall.taskgraph
+
+./cadss-engine -s ex_proc.config -t /afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/4proc_migratory -n 4 -p refProcessor -c refCache

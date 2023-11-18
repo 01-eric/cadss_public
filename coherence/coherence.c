@@ -114,12 +114,12 @@ uint8_t busReq(bus_req_type reqType, uint64_t addr, int processorNum) // basical
                 = snoopMI(reqType, &ca, currentState, addr, processorNum); // only moves M to I on BusWr
             break;
         case MSI:
-            // TODO: Implement this.
             nextState
                 = snoopMSI(reqType, &ca, currentState, addr, processorNum);
             break;
         case MESI:
-            // TODO: Implement this.
+            nextState
+                = snoopMESI(reqType, &ca, currentState, addr, processorNum);
             break;
         case MOESI:
             // TODO: Implement this.
@@ -186,7 +186,8 @@ uint8_t permReq(uint8_t is_read, uint64_t addr, int processorNum) // basically e
             break;
 
         case MESI:
-            // TODO: Implement this.
+            nextState = cacheMESI(is_read, &permAvail, currentState, addr, 
+                                processorNum);
             break;
 
         case MOESI:
@@ -234,12 +235,16 @@ uint8_t invlReq(uint64_t addr, int processorNum) // basically handles cache line
 
         case MSI:
             nextState = INVALID;
-            if (currentState != INVALID) {
-                if (currentState == MODIFIED) inter_sim->busReq(DATA, addr, processorNum);
+            if (currentState == MODIFIED) {
+                inter_sim->busReq(DATA, addr, processorNum);
                 flush = 1; // not sure about this logic yet
             } break;
         case MESI:
-            // TODO: Implement this.
+            nextState = INVALID;
+            if (currentState == MODIFIED) {
+                inter_sim->busReq(DATA, addr, processorNum);
+                flush = 1; // not sure about this logic yet
+            } break;
             break;
 
         case MOESI:
