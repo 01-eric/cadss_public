@@ -122,7 +122,8 @@ uint8_t busReq(bus_req_type reqType, uint64_t addr, int processorNum) // basical
                 = snoopMESI(reqType, &ca, currentState, addr, processorNum);
             break;
         case MOESI:
-            // TODO: Implement this.
+            nextState
+                = snoopMOESI(reqType, &ca, currentState, addr, processorNum);
             break;
         case MESIF:
             // TODO: Implement this.
@@ -191,7 +192,8 @@ uint8_t permReq(uint8_t is_read, uint64_t addr, int processorNum) // basically e
             break;
 
         case MOESI:
-            // TODO: Implement this.
+            nextState = cacheMOESI(is_read, &permAvail, currentState, addr, 
+                                processorNum);
             break;
 
         case MESIF:
@@ -245,13 +247,14 @@ uint8_t invlReq(uint64_t addr, int processorNum) // basically handles cache line
                 flush = 1; // not sure about this logic yet
             } break;
         case MOESI:
-            // TODO: Implement this.
-            break;
-
+            nextState = INVALID;
+            if (currentState == MODIFIED || currentState == OWNED) {
+                inter_sim->busReq(DATA, addr, processorNum);
+                flush = 1; // not sure about this logic yet
+            } break;
         case MESIF:
             // TODO: Implement this.
             break;
-
         default:
             fprintf(stderr, "Undefined coherence scheme - %d\n", cs);
             break;

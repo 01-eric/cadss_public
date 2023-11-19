@@ -14,7 +14,8 @@ typedef enum _coherence_states
     INVALID_MODIFIED, // serves dual purpose as intermediate between S -> M
     SHARING,
     INVALID_SHARING, // serves dual purpose as intermediate between I -> E
-    EXCLUSIVE_CLEAN
+    EXCLUSIVE_CLEAN,
+    OWNED
 } coherence_states;
 
 typedef enum _coherence_scheme
@@ -43,6 +44,12 @@ cacheMESI(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
         uint64_t addr, int procNum);
 coherence_states
 snoopMESI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
+        uint64_t addr, int procNum);
+coherence_states
+cacheMOESI(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
+        uint64_t addr, int procNum);
+coherence_states
+snoopMOESI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
         uint64_t addr, int procNum);
 
 #endif
