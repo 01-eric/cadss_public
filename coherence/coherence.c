@@ -232,7 +232,6 @@ uint8_t invlReq(uint64_t addr, int processorNum) // basically handles cache line
                 flush = 1;
             }
             break;
-
         case MSI:
             nextState = INVALID;
             if (currentState == MODIFIED) {
@@ -245,8 +244,6 @@ uint8_t invlReq(uint64_t addr, int processorNum) // basically handles cache line
                 inter_sim->busReq(DATA, addr, processorNum);
                 flush = 1; // not sure about this logic yet
             } break;
-            break;
-
         case MOESI:
             // TODO: Implement this.
             break;

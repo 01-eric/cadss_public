@@ -13,4 +13,4 @@
 /afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/swaptions_4_simsmall.taskgraph
 /afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/x264_8_simsmall.taskgraph
 
-./cadss-engine -s ex_proc.config -t /afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/4proc_migratory -n 4 -p refProcessor -c refCache
+./cadss-engine -s ex_proc.config -t /afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/4proc_prodcons -n 4 -p refProcessor -c refCache
