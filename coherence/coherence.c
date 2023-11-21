@@ -13,7 +13,7 @@ typedef void (*cacheCallbackFunc)(int, int, int64_t);
 
 tree_t** coherStates = NULL;
 int processorCount = 1;
-bool verbose = true;
+bool verbose = false;
 coherence_scheme cs = MI;
 coher* self = NULL;
 interconn* inter_sim = NULL;
@@ -126,7 +126,8 @@ uint8_t busReq(bus_req_type reqType, uint64_t addr, int processorNum) // basical
                 = snoopMOESI(reqType, &ca, currentState, addr, processorNum);
             break;
         case MESIF:
-            // TODO: Implement this.
+            nextState
+                = snoopMESIF(reqType, &ca, currentState, addr, processorNum);
             break;
         default:
             fprintf(stderr, "Undefined coherence scheme - %d\n", cs);
@@ -197,7 +198,8 @@ uint8_t permReq(uint8_t is_read, uint64_t addr, int processorNum) // basically e
             break;
 
         case MESIF:
-            // TODO: Implement this.
+            nextState = cacheMESIF(is_read, &permAvail, currentState, addr, 
+                                processorNum);
             break;
 
         default:
@@ -211,59 +213,62 @@ uint8_t permReq(uint8_t is_read, uint64_t addr, int processorNum) // basically e
 
 uint8_t invlReq(uint64_t addr, int processorNum) // basically handles cache line invalidation
 {
-    printv("In mode %d; invalidation request with address %lx, processor %d\n", cs, addr, processorNum);
-    coherence_states currentState, nextState = INVALID;
-    cache_action ca;
-    uint8_t flush;
+    // printv("In mode %d; invalidation request with address %lx, processor %d\n", cs, addr, processorNum);
+    // coherence_states currentState, nextState = INVALID;
+    // cache_action ca;
+    // uint8_t flush;
 
-    if (processorNum < 0 || processorNum >= processorCount)
-    {
-        // ERROR
-    }
+    // if (processorNum < 0 || processorNum >= processorCount)
+    // {
+    //     // ERROR
+    // }
 
-    currentState = getState(addr, processorNum);
+    // currentState = getState(addr, processorNum);
 
-    flush = 0; // returns whether or not data was actually flushed or not
-    switch (cs)
-    {
-        case MI:
-            nextState = INVALID;
-            if (currentState != INVALID)
-            {
-                inter_sim->busReq(DATA, addr, processorNum); // DATA bus req type denotes that a processor flushed this cache entry
-                flush = 1;
-            }
-            break;
-        case MSI:
-            nextState = INVALID;
-            if (currentState == MODIFIED) {
-                inter_sim->busReq(DATA, addr, processorNum);
-                flush = 1; // not sure about this logic yet
-            } break;
-        case MESI:
-            nextState = INVALID;
-            if (currentState == MODIFIED) {
-                inter_sim->busReq(DATA, addr, processorNum);
-                flush = 1; // not sure about this logic yet
-            } break;
-        case MOESI:
-            nextState = INVALID;
-            if (currentState == MODIFIED || currentState == OWNED) {
-                inter_sim->busReq(DATA, addr, processorNum);
-                flush = 1; // not sure about this logic yet
-            } break;
-        case MESIF:
-            // TODO: Implement this.
-            break;
-        default:
-            fprintf(stderr, "Undefined coherence scheme - %d\n", cs);
-            break;
-    }
+    // flush = 0; // returns whether or not data was actually flushed or not
+    // switch (cs)
+    // {
+    //     case MI:
+    //         nextState = INVALID;
+    //         if (currentState != INVALID)
+    //         {
+    //             inter_sim->busReq(DATA, addr, processorNum); // DATA bus req type denotes that a processor flushed this cache entry
+    //             flush = 1;
+    //         }
+    //         break;
+    //     case MSI:
+    //         nextState = INVALID;
+    //         if (currentState == MODIFIED) {
+    //             inter_sim->busReq(DATA, addr, processorNum);
+    //             flush = 1; // not sure about this logic yet
+    //         } break;
+    //     case MESI:
+    //         nextState = INVALID;
+    //         if (currentState == MODIFIED) {
+    //             inter_sim->busReq(DATA, addr, processorNum);
+    //             flush = 1; // not sure about this logic yet
+    //         } break;
+    //     case MOESI:
+    //         nextState = INVALID;
+    //         if (currentState == MODIFIED || currentState == OWNED) {
+    //             inter_sim->busReq(DATA, addr, processorNum);
+    //             flush = 1;
+    //         } break;
+    //     case MESIF:
+    //         nextState = INVALID;
+    //         if (currentState == MODIFIED) {
+    //             inter_sim->busReq(DATA, addr, processorNum);
+    //             flush = 1; 
+    //         } break;
+    //     default:
+    //         fprintf(stderr, "Undefined coherence scheme - %d\n", cs);
+    //         break;
+    // }
 
-    tree_remove(coherStates[processorNum], addr);
+    // tree_remove(coherStates[processorNum], addr);
 
-    // Notify about "permReqOnFlush".
-    return flush;
+    // // Notify about "permReqOnFlush".
+    // return flush;
 }
 
 int tick()

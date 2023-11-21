@@ -13,7 +13,7 @@
 /afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/swaptions_4_simsmall.taskgraph
 /afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/x264_8_simsmall.taskgraph
 
-./cadss-engine -s ex_proc.config -t /afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/4proc_prodcons -n 4 -p refProcessor -c refCache
+./cadss-engine -n 4 -c simpleCache -t /afs/cs.cmu.edu/academic/class/15346-f23/public/traces/coher/4proc_prodcons -s ex_proc.config -o coherence
 
 migratory: 2079 (MOESI) 1578 (MESIF)
 prodcons: 1909 (MOESI) 1749 (MESIF)

@@ -104,7 +104,7 @@ void coherCallback(int type, int processorNum, int64_t addr)
         pendReq = pendReq->next;
 
         pr->next = readyReq;
-        readyReq = pr;
+        readyReq = pr; \
     }
     else
     {

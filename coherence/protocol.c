@@ -106,11 +106,14 @@ cacheMSI(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
             } else {
                 *permAvail = 0;
                 sendBusWr(addr, procNum); // same actions as moving from I -> M
-                return INVALID_MODIFIED;
+                return SHARING_MODIFIED;
             }
         case INVALID_SHARING:
             *permAvail = 0; // do nothing; snoopMI will handle this case as well
             return INVALID_SHARING;
+        case SHARING_MODIFIED:
+            *permAvail = 0;
+            return SHARING_MODIFIED;
         default:
             break;
     } return INVALID;
@@ -127,10 +130,10 @@ snoopMSI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
         case MODIFIED:
             sendData(addr, procNum); // broadcast DATA busreq to let processors know data was evicted
             if (reqType == BUSRD) return SHARING; // move M -> S if BusRd, else move M -> I (how do we flush here???)
-            else { // BUSWR
+            else if (reqType == BUSWR) {
                 *ca = INVALIDATE;
                 return INVALID;
-            }
+            } break;
         case INVALID_MODIFIED:
             if (reqType == DATA) {
                 *ca = DATA_RECV;
@@ -138,7 +141,7 @@ snoopMSI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
             } return INVALID_MODIFIED;
         case SHARING:
             if (reqType == BUSWR) {
-                *ca = INVALIDATE; // double check this is the way to use invalidate as well
+                *ca = INVALIDATE;
                 return INVALID;
             } return SHARING;
         case INVALID_SHARING:
@@ -146,6 +149,11 @@ snoopMSI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
                 *ca = DATA_RECV;
                 return SHARING;
             } return INVALID_SHARING;
+        case SHARING_MODIFIED:
+            if (reqType == DATA) { // also same logic as INVALID_MODIFIED
+                *ca = DATA_RECV;
+                return MODIFIED;
+            } return SHARING_MODIFIED;
         default:
             break;
     } return INVALID;
@@ -177,12 +185,15 @@ cacheMESI(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
                 return SHARING;
             } else {
                 *permAvail = 0;
-                sendBusWr(addr, procNum); // same actions as moving from I -> M
-                return INVALID_MODIFIED;
+                sendBusWr(addr, procNum);
+                return SHARING_MODIFIED;
             }
         case INVALID_SHARING:
             *permAvail = 0; // do nothing; snoopMI will handle this case as well
             return INVALID_SHARING;
+        case SHARING_MODIFIED:
+            *permAvail = 0;
+            return SHARING_MODIFIED;
         case EXCLUSIVE_CLEAN:
             *permAvail = 1; // in E state, we already have RW permissions
             return is_read ? EXCLUSIVE_CLEAN : MODIFIED;
@@ -202,13 +213,13 @@ snoopMESI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
         case MODIFIED:
             if (reqType == BUSRD) {
                 indicateShared(addr, procNum); // IMPORTANT: since we are moving to S, need to indicate shared
-                sendData(addr, procNum); // want DATA to be sent after SHARED bc we decide I -> S vs. I -> E based on SHARED
-                return SHARING; // move M -> S if BusRd, else move M -> I (how do we flush here???)
-            } else { // BUSWR
+                sendData(addr, procNum); 
+                return SHARING; // move M -> S if BusRd, else move M -> I
+            } else if (reqType == BUSWR) {
                 sendData(addr, procNum);
                 *ca = INVALIDATE;
                 return INVALID;
-            }
+            } break;
         case INVALID_MODIFIED:
             if (reqType == DATA || reqType == SHARED) {
                 *ca = DATA_RECV;
@@ -218,24 +229,32 @@ snoopMESI(bus_req_type reqType, cache_action* ca, coherence_states currentState,
             if (reqType == BUSRD) {
                 indicateShared(addr, procNum); // indicate shared if another processor attempts to read (determines E state or not)
                 return SHARING;
-            } else {
+            } else if (reqType == BUSWR) {
                 *ca = INVALIDATE;
                 return INVALID;
-            }
+            } break;
         case INVALID_SHARING:
-            if (reqType == SHARED) return SHARING;
-            else if (reqType == DATA) {
+            if (reqType == SHARED) {
+                *ca = DATA_RECV;
+                return SHARING;
+            } else if (reqType == DATA) {
                 *ca = DATA_RECV;
                 return EXCLUSIVE_CLEAN; // move to E state if we receive DATA without receiving SHARED
             } return INVALID_SHARING;
+        case SHARING_MODIFIED:
+            if (reqType == DATA || reqType == SHARED) { // same as IM state, but asserts shared if we receive a BusRd
+                *ca = DATA_RECV;
+                return MODIFIED;
+            } else if (reqType == BUSRD) indicateShared(addr, procNum);
+            return SHARING_MODIFIED;
         case EXCLUSIVE_CLEAN:
             if (reqType == BUSWR) { // rest is same logic as SHARING state
                 *ca = INVALIDATE;
                 return INVALID;
-            } else {
+            } else if (reqType == BUSRD) {
                 indicateShared(addr, procNum);
                 return SHARING;
-            }
+            } break;
         default:
             break;
     } return INVALID;
@@ -267,12 +286,15 @@ cacheMOESI(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
                 return SHARING;
             } else {
                 *permAvail = 0;
-                sendBusWr(addr, procNum); // same actions as moving from I -> M
-                return INVALID_MODIFIED;
+                sendBusWr(addr, procNum);
+                return SHARING_MODIFIED;
             }
         case INVALID_SHARING:
             *permAvail = 0; // do nothing; snoopMI will handle this case as well
             return INVALID_SHARING;
+        case SHARING_MODIFIED:
+            *permAvail = 0;
+            return SHARING_MODIFIED;
         case EXCLUSIVE_CLEAN:
             *permAvail = 1; // in E state, we already have RW permissions
             return is_read ? EXCLUSIVE_CLEAN : MODIFIED;
@@ -283,8 +305,11 @@ cacheMOESI(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
             } else {
                 *permAvail = 0;
                 sendBusWr(addr, procNum);
-                return INVALID_MODIFIED;
+                return OWNED_MODIFIED;
             }
+        case OWNED_MODIFIED:
+            *permAvail = 0;
+            return OWNED_MODIFIED;
         default:
             break;
     } return INVALID;
@@ -300,14 +325,14 @@ snoopMOESI(bus_req_type reqType, cache_action* ca, coherence_states currentState
             return INVALID;
         case MODIFIED:
             if (reqType == BUSRD) {
-                // indicateShared(addr, procNum); // whether or not we still need this depends on whether OWNED needs to send SHARED
-                sendData(addr, procNum); // want DATA to be sent after SHARED bc we decide I -> S vs. I -> E based on SHARED
-                return OWNED; // move M -> S if BusRd, else move M -> I (how do we flush here???)
+                indicateShared(addr, procNum); // since O needs to assert shared, we must assert shared when moving to O
+                sendData(addr, procNum);
+                return OWNED;
             } else if (reqType == BUSWR) {
                 sendData(addr, procNum);
                 *ca = INVALIDATE;
                 return INVALID;
-            }
+            } break;
         case INVALID_MODIFIED:
             if (reqType == DATA || reqType == SHARED) {
                 *ca = DATA_RECV;
@@ -320,31 +345,176 @@ snoopMOESI(bus_req_type reqType, cache_action* ca, coherence_states currentState
             } else if (reqType == BUSWR) {
                 *ca = INVALIDATE;
                 return INVALID;
-            }
+            } break;
         case INVALID_SHARING:
-            if (reqType == SHARED) return SHARING;
-            else if (reqType == DATA) {
+            if (reqType == SHARED) {
+                *ca = DATA_RECV;
+                return SHARING;
+            } else if (reqType == DATA) {
                 *ca = DATA_RECV;
                 return EXCLUSIVE_CLEAN; // move to E state if we receive DATA without receiving SHARED
             } return INVALID_SHARING;
+        case SHARING_MODIFIED:
+            if (reqType == DATA || reqType == SHARED) { // same as IM state, but asserts shared if we receive a BusRd
+                *ca = DATA_RECV;
+                return MODIFIED;
+            } else if (reqType == BUSRD) indicateShared(addr, procNum);
+            return SHARING_MODIFIED;
         case EXCLUSIVE_CLEAN:
-            if (reqType == BUSWR) { // rest is same logic as SHARING state
+            if (reqType == BUSWR) {
                 *ca = INVALIDATE;
                 return INVALID;
             } else if (reqType == BUSRD) {
                 indicateShared(addr, procNum);
                 return SHARING;
-            }
+            } break;
         case OWNED:
             if (reqType == BUSRD) {
-                // indicateShared(addr, procNum) // need this???
-                sendData(addr, procNum);
+                indicateShared(addr, procNum); // this will guarantee E (and consequently M) should not coexist with O
+                sendData(addr, procNum); // should be safe to send DATA here, we will never have O and M coexist on same address
                 return OWNED;
             } else if (reqType == BUSWR) {
                 sendData(addr, procNum);
                 *ca = INVALIDATE;
                 return INVALID;
+            } break;
+        case OWNED_MODIFIED:
+            if (reqType == DATA || reqType == SHARED) { // same as SM state, but also needs to sendData since it's one of O state's responsibilities
+                *ca = DATA_RECV;
+                return MODIFIED;
+            } else if (reqType == BUSRD) {
+                indicateShared(addr, procNum);
+                sendData(addr, procNum);
+            } else if (reqType == BUSWR) sendData(addr, procNum);
+            return OWNED_MODIFIED;
+        default:
+            break;
+    } return INVALID;
+}
+
+coherence_states
+cacheMESIF(uint8_t is_read, uint8_t* permAvail, coherence_states currentState,
+        uint64_t addr, int procNum)
+{
+    switch(currentState) {
+        case INVALID:
+            *permAvail = 0; // indicate permissions not available yet, need to go to intermediate state first
+            if (is_read) {
+                sendBusRd(addr, procNum); // send BusRd, wait and see if anyone asserts SHARED
+                return INVALID_SHARING; // now becomes intermediate state between I -> F and I -> E
+            } else {
+                sendBusWr(addr, procNum); 
+                return INVALID_MODIFIED;
             }
+        case MODIFIED:
+            *permAvail = 1; // permissions already available
+            return MODIFIED;
+        case INVALID_MODIFIED:
+            *permAvail = 0; // do nothing; snoopMI will move this state to modified eventually when DATA is received
+            return INVALID_MODIFIED;
+        case SHARING:
+            if (is_read) {
+                *permAvail = 1; // if we are reading, then permissions already available
+                return SHARING;
+            } else {
+                *permAvail = 0;
+                sendBusWr(addr, procNum); // same actions as moving from I -> M
+                return SHARING_MODIFIED;
+            }
+        case INVALID_SHARING:
+            *permAvail = 0; // do nothing; snoopMI will handle this case as well
+            return INVALID_SHARING;
+        case SHARING_MODIFIED:
+            *permAvail = 0;
+            return SHARING_MODIFIED;
+        case EXCLUSIVE_CLEAN:
+            *permAvail = 1; // in E state, we already have RW permissions
+            return is_read ? EXCLUSIVE_CLEAN : MODIFIED;
+        case OWNED: // F state
+            if (is_read) {
+                *permAvail = 1; 
+                return OWNED;
+            } else {
+                *permAvail = 0;
+                sendBusWr(addr, procNum); 
+                return OWNED_MODIFIED; // intermediate between F and M
+            }
+        default:
+            break;
+    } return INVALID;
+}
+
+coherence_states
+snoopMESIF(bus_req_type reqType, cache_action* ca, coherence_states currentState,
+        uint64_t addr, int procNum)
+{
+    *ca = NO_ACTION;
+    switch (currentState) {
+        case INVALID:
+            return INVALID;
+        case MODIFIED:
+            if (reqType == BUSRD) {
+                indicateShared(addr, procNum); // IMPORTANT: since we are moving to S, need to indicate shared
+                sendData(addr, procNum); 
+                return SHARING; // move M -> S if BusRd, else move M -> I
+            } else if (reqType == BUSWR) {
+                sendData(addr, procNum);
+                *ca = INVALIDATE;
+                return INVALID;
+            } break;
+        case INVALID_MODIFIED:
+            if (reqType == DATA || reqType == SHARED) {
+                *ca = DATA_RECV;
+                return MODIFIED;
+            } return INVALID_MODIFIED;
+        case SHARING:
+            if (reqType == BUSRD) {
+                indicateShared(addr, procNum); // still need this, it is possible to have S without F by going from M -> S
+                return SHARING;
+            } else if (reqType == BUSWR) {
+                *ca = INVALIDATE;
+                return INVALID;
+            } break;
+        case INVALID_SHARING:
+            if (reqType == SHARED) {
+                *ca = DATA_RECV;
+                return OWNED; // F state
+            } else if (reqType == DATA) {
+                *ca = DATA_RECV;
+                return EXCLUSIVE_CLEAN; // move to E state if we receive DATA without receiving SHARED
+            } return INVALID_SHARING;
+        case SHARING_MODIFIED:
+            if (reqType == DATA || reqType == SHARED) { // same as IM state, but asserts shared if we receive a BusRd
+                *ca = DATA_RECV;
+                return MODIFIED;
+            } else if (reqType == BUSRD) indicateShared(addr, procNum);
+        case EXCLUSIVE_CLEAN:
+            if (reqType == BUSWR) {
+                *ca = INVALIDATE;
+                return INVALID;
+            } else if (reqType == BUSRD)  {
+                indicateShared(addr, procNum);
+                return SHARING;
+            } break;
+        case OWNED:
+            if (reqType == BUSRD) {
+                indicateShared(addr, procNum);
+                sendData(addr, procNum); // where the "FORWARD" occurs; safe to send DATA since M and F cannot coexist
+                return SHARING;
+            } else if (reqType == BUSWR) {
+                sendData(addr, procNum);
+                *ca = INVALIDATE;
+                return INVALID;
+            } break;
+        case OWNED_MODIFIED:
+            if (reqType == DATA || reqType == SHARED) { // same as SM state, but also needs to sendData since it's one of O state's responsibilities
+                *ca = DATA_RECV;
+                return MODIFIED;
+            } else if (reqType == BUSRD) {
+                indicateShared(addr, procNum);
+                sendData(addr, procNum);
+            } else if (reqType == BUSWR) sendData(addr, procNum);
+            return OWNED_MODIFIED;
         default:
             break;
     } return INVALID;
